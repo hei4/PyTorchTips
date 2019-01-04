@@ -1,2 +1,2 @@
-# PyTorchTips
+# TorchTips
 PyTorch Tips
