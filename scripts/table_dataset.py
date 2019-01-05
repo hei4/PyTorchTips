@@ -9,28 +9,38 @@ import torch.utils.data
 
 
 def main():
-    num_workers = 2
-    batch_size = 50
-    epoch_size = 20
+    ## 各種設定
+    num_workers = 2     # データ読み込みに使用するサブプロセス数の設定
+    batch_size = 30     # バッチサイズの設定
+    epoch_size = 20     # エポックサイズの設定
 
+    ## データセットとデータローダー
     df = pd.read_csv('https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data', header=None,
                      names=['sepal-length',
                             'sepal-width',
                             'petal-length',
                             'petal-width',
-                            'class'])
+                            'class'])   # UCI Machine Learning RepositoryのIrisのデータセットを例として使用
 
     class_mapping = {label:idx for idx, label in enumerate(np.unique(df['class']))}
-    df['class'] = df['class'].map(class_mapping)
+    df['class'] = df['class'].map(class_mapping)    # クラスラベルを整数にエンコーディング
 
     features = torch.tensor(df[['sepal-length', 'sepal-width', 'petal-length', 'petal-width']].values,
-                            dtype=torch.float)
+                            dtype=torch.float)  # 説明変数のTensor
 
-    labels = torch.tensor(df['class'].values, dtype=torch.long)
+    labels = torch.tensor(df['class'].values, dtype=torch.long)     # 目的変数のTensor
 
-    train_set = torch.utils.data.TensorDataset(features, labels)
+    dataset = torch.utils.data.TensorDataset(features, labels)  # データセット作成
+    # データセットを120:30でトレーニングデータセットとバリデーションデータセットに分割
+    train_set, valid_set = torch.utils.data.random_split(dataset, lengths=[120, 30])
+
+    # トレーニングデータセットのデータローダー
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
+    # バリデーションデータセットのデータローダー
+    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+
+    ## ニューラルネットワークの設定
     net = torch.nn.Sequential(
         nn.Linear(4, 64),
         nn.ReLU(),
@@ -39,64 +49,81 @@ def main():
         nn.Linear(128, 64),
         nn.ReLU(),
         nn.Linear(64, 4)
-    )
+    )   # MLP
     print(net)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print('device:', device)
     net.to(device)  # for GPU
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
+    ## 損失関数とオプティマイザーの設定
+    criterion = nn.CrossEntropyLoss()                   # 損失関数（ソフトマックス交差エントロピー）
+    optimizer = optim.Adam(net.parameters(), lr=0.001)  # オプティマイザー（Adamオプティマイザー）
 
+    ## 学習実行
     epoch_list = []
     train_acc_list = []
-    # test_acc_list = []
-    for epoch in range(epoch_size):
+    valid_acc_list = []
+    for epoch in range(epoch_size):     # エポックのループ
 
+        net.train()  # ニューラルネットを訓練モードに設定
         train_true = []
         train_pred = []
-        for itr, data in enumerate(train_loader):
+        for itr, data in enumerate(train_loader):   # トレーニングのループ
             features, labels = data
-            train_true.extend(labels.tolist())
+            train_true.extend(labels.tolist())  # クラスラベルのGround-Truthをリストに追加
 
             features, labels = features.to(device), labels.to(device)   # for GPU
 
-            optimizer.zero_grad()
-            outputs = net(features)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()               # 勾配をリセット
+            logits = net(features)              # ニューラルネットでロジットを算出
+            loss = criterion(logits, labels)    # 損失値を算出
+            loss.backward()                     # 逆伝播
+            optimizer.step()                    # オプティマイザーでニューラルネットのパラメータを更新
 
-            _, predicted = torch.max(outputs.data, 1)
-            train_pred.extend(predicted.tolist())
+            _, predicted = torch.max(logits.data, 1)    # 最大のロジットからクラスラベルの推論値を算出
+            train_pred.extend(predicted.tolist())       # 推論結果をリストに追加
 
             print('[epochs: {}, mini-batches: {}, records: {}] loss: {:.3f}'.format(
-                epoch + 1, itr + 1, (itr + 1) * batch_size, loss.item()))
+                epoch + 1, itr + 1, (itr + 1) * batch_size, loss.item()))   # 損失値の表示
 
-        train_acc = accuracy_score(train_true, train_pred)
-        # test_acc = accuracy_score(test_true, test_pred)
-        # print('    epocs: {}, train acc.: {:.3f}, test acc.: {:.3f}'.format(epoch + 1, train_acc, test_acc))
-        print('    epocs: {}, train acc.: {:.3f}'.format(epoch + 1, train_acc))
+        net.eval()  # ニューラルネットを評価モードに設定
+        valid_true = []
+        valid_pred = []
+        for itr, data in enumerate(valid_loader):   # バリデーションのループ
+            features, labels = data
+            valid_true.extend(labels.tolist())  # クラスラベルのGround-Truthをリストに追加
+
+            features, labels = features.to(device), labels.to(device)   # for GPU
+
+            with torch.no_grad():   # バリデーションなので勾配計算OFF
+                logits = net(features)
+
+            _, predicted = torch.max(logits.data, 1)    # 最大のロジットからクラスラベルの推論値を算出
+            valid_pred.extend(predicted.tolist())       # 推論結果をリストに追加
+
+        train_acc = accuracy_score(train_true, train_pred)      # トレーニングでの正答率をsklearnの機能で算出
+        valid_acc = accuracy_score(valid_true, valid_pred)      # バリデーションでの正答率をsklearnの機能で算出
+
+        # エポックごとのトレーニングとバリデーションの正答率を表示
+        print('    epocs: {}, train acc.: {:.3f}, valid acc.: {:.3f}'.format(epoch + 1, train_acc, valid_acc))
         print()
 
-        epoch_list.append(epoch + 1)
+        epoch_list.append(epoch + 1)        # ログ用
         train_acc_list.append(train_acc)
-        #test_acc_list.append(test_acc)
+        valid_acc_list.append(valid_acc)
 
     print('Finished Training')
 
     print('Save Network')
-    torch.save(net.state_dict(), 'model.pth')
+    torch.save(net.state_dict(), 'model.pth')   # 学習したパラメータを保存
 
-    # df = pd.DataFrame({'epoch': epoch_list,
-    #                    'train/accuracy': train_acc_list,
-    #                    'test/accuracy': test_acc_list})
     df = pd.DataFrame({'epoch': epoch_list,
-                       'train/accuracy': train_acc_list})
+                       'train/accuracy': train_acc_list,
+                       'valid/accuracy': valid_acc_list})   # ログ用にデータフレームを作成
 
     print('Save Training Log')
-    df.to_csv('train.log', index=False)
+    df.to_csv('train.log', index=False)     # データフレームをCSVで保存
 
 
 if __name__ == '__main__':
