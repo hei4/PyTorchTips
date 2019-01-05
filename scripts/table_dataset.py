@@ -31,14 +31,17 @@ def main():
     labels = torch.tensor(df['class'].values, dtype=torch.long)     # 目的変数のTensor
 
     dataset = torch.utils.data.TensorDataset(features, labels)  # データセット作成
-    # データセットを120:30でトレーニングデータセットとバリデーションデータセットに分割
-    train_set, valid_set = torch.utils.data.random_split(dataset, lengths=[120, 30])
+    # データセットを80:20:50でトレーニングデータセット：バリデーションデータセット：テストデータセットに分割
+    train_set, valid_set, test_set = torch.utils.data.random_split(dataset, lengths=[80, 20, 50])
 
     # トレーニングデータセットのデータローダー
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     # バリデーションデータセットのデータローダー
-    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # テストデータセットのデータローダー
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     ## ニューラルネットワークの設定
     net = torch.nn.Sequential(
@@ -124,6 +127,25 @@ def main():
 
     print('Save Training Log')
     df.to_csv('train.log', index=False)     # データフレームをCSVで保存
+
+    ## 学習後の推論実行
+    net.eval()  # ニューラルネットを評価モードに設定
+    test_true = []
+    test_pred = []
+    for itr, data in enumerate(test_loader):  # バリデーションのループ
+        features, labels = data
+        test_true.extend(labels.tolist())  # クラスラベルのGround-Truthをリストに追加
+
+        features, labels = features.to(device), labels.to(device)  # for GPU
+
+        with torch.no_grad():  # バリデーションなので勾配計算OFF
+            logits = net(features)
+
+        _, predicted = torch.max(logits.data, 1)  # 最大のロジットからクラスラベルの推論値を算出
+        test_pred.extend(predicted.tolist())  # 推論結果をリストに追加
+
+    test_acc = accuracy_score(test_true, test_pred)  # テストでの正答率をsklearnの機能で算出
+    print('test acc.: {:.3f}'.format(test_acc))
 
 
 if __name__ == '__main__':

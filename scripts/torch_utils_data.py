@@ -38,7 +38,7 @@ def main():
     dataset6, dataset7 = torch.utils.data.random_split(dataset3, [700, 300])
     print('length(dataset6):', len(dataset6))   # データセット6のデータ数
     print('length(dataset7):', len(dataset7))   # データセット7のデータ数
-    print('dataset6[0]:', dataset6[0])          # データセット6の最初の行の内容（＝データセット1の最初の行の内容）
+    print('dataset6[0]:', dataset6[0])          # データセット6の最初の行の内容
     print('dataset7[0]:', dataset7[0])          # データセット7の最初の行の内容
     print()
 
